@@ -1,0 +1,184 @@
+---
+title: "Data-Driven Strategies for improving Bank Marketing Analysis"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r setup,include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+**LIBRARIES**
+
+```{r}
+library(ISLR2)
+library(ggplot2)
+library(GGally)
+library(readr)
+library(klaR)
+library(dplyr)
+library(reshape2)
+library(car) 
+library(caret)
+library(corrplot)
+library(fastDummies)
+```
+
+**LOADING OF DATASET**
+
+```{r}
+data_set<-read.csv("bank-additional-full.csv",sep=";")
+print(data_set)
+head(data_set)
+```
+
+**SUMMARY OF THE DATASET**
+
+```{r}
+summary(data_set)
+```
+
+**NAMES OF THE COLUMNS OF THE DATASET**
+
+```{r}
+names(data_set)
+```
+
+**STRUCTURE OF THE DATASET**
+
+```{r}
+str(data_set)
+```
+
+**DIMENSIONS OF THE DATASET**
+
+```{r}
+dim(data_set)
+```
+
+**STATUS OF MARITAL PEOPLE**
+
+```{r}
+ggplot(data_set,aes(x=marital))+geom_bar(fill="orange",color="black")+labs(title="Status of Marital People",x="marital",y="Total no of People")+theme_minimal()
+```
+
+**STATUS OF NO. OF PEOPLE TAKEN LOAN**
+
+```{r}
+ggplot(data_set,aes(x=loan))+geom_bar(fill="green",color="red")+labs(title="No.of People taken loan",x="Loan",y="Total no of People")+theme_minimal()
+```
+
+**COMPARISON BETWEEN JOB AND AGE**
+
+```{r}
+ggplot(data_set,aes(x=job,y=age))+geom_jitter(color="red",alpha=0.4,size=1.0)+labs(title="Distribution b/w Age and Jobs",t="Job",s="Age")+theme_minimal()+theme(axis.text.x=element_text(angle=45,hjust=1),plot.title=element_text(hjust = 0.5))
+```
+
+**COMPARISON BETWEEN AGE AND EDUCATION**
+
+```{r}
+ggplot(data_set,aes(x=age,y=education))+stat_summary(fun=mean,geom="bar",fill="blue")+labs(title="Average B/W Age and Education",x="Avg Age",y="Education")+coord_flip()+theme_minimal()+theme(plot.title=element_text(hjust=0.5),axis.text.x=element_text(angle=90))
+```
+
+**COMPARISON BETWEEN HOUSING AND LOAN**
+
+```{r}
+ggplot(data_set,aes(x=housing,fill=loan))+geom_bar(position="dodge")+labs(title="Status Housing and Loan",x="Housing",y="Count")+scale_fill_manual(values=c("yellow","blue","red"))+theme_minimal()+theme(plot.title=element_text(hjust = 0.5))
+
+```
+
+**COMPARISON BETWEEN HOUSING AND JOBS**
+
+```{r}
+ggplot(data_set,aes(x=job,fill=housing))+geom_bar(position="dodge")+labs(title="Hosing and Jobs",x="Job",y="Count")+theme_minimal()+theme(axis.text.x=element_text(angle=90,hjust=1))+theme(plot.title=element_text(hjust = 0.5))
+```
+
+**COMPARISON BETWEEN EMP.VAR.RATE AND CONS.PRICE.IDX**
+
+```{r}
+ggplot(data_set,aes(x=emp.var.rate,y=cons.price.idx))+geom_line(color="darkgreen",linewidth=1)+labs(title="EMP.VAR.RATE VS CONS.PRICE.IDX",x="emp.var.rate",y="cons.price.idx")+theme_minimal()+theme(plot.title=element_text(hjust = 0.5))
+```
+
+
+**CORRELATION MATRIX**
+
+```{r}
+# Load dataset
+data <- read.csv("bank-additional-full.csv", sep = ";")
+
+# Defensive coding: make a copy of the data
+data_encoded <- data
+
+# Convert all character/factor columns to numeric
+for (col in names(data_encoded)) {
+  if (is.character(data_encoded[[col]]) || is.factor(data_encoded[[col]])) {
+    data_encoded[[col]] <- as.numeric(as.factor(data_encoded[[col]]))
+  }
+}
+
+# Safe renaming
+numeric_vars <- sapply(data_encoded, is.numeric)
+
+# Debug: Check variable classes
+print(class(data_encoded))  # Should print 'data.frame'
+print(class(numeric_vars))  # Should print 'logical'
+
+# Subset numeric columns safely
+numeric_data <- data_encoded[, numeric_vars]
+
+# Compute correlation matrix
+correlation_matrix <- cor(numeric_data, use = "complete.obs")
+
+# Melt the correlation matrix using reshape2
+library(reshape2)
+correlation_melted <- reshape2::melt(correlation_matrix)
+
+# Plot the correlation heatmap
+library(ggplot2)
+ggplot(data = correlation_melted, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = ifelse(Var1 == Var2, "", sprintf("%.2f", value))), 
+            size = 2, color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), name = "Correlation") +
+  theme_minimal(base_size = 8) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 6),
+        axis.text.y = element_text(size = 6),
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 10)) +
+  coord_fixed() +
+  labs(title = "Correlation Matrix", x = "", y = "")
+
+
+```
+
+
+**VIF VALUES**
+
+```{r}
+r_data_en<-model.matrix(~ .- y,data=data_set)
+data_set$y<-as.numeric(as.factor(data_set$y))-1 
+r_data_en<-r_data_en[,colnames(r_data_en)!="(Intercept)"] 
+cor_matrix<-cor(r_data_en)
+high_corr<-findCorrelation(cor_matrix)
+r_data_en<-r_data_en[,-high_corr]
+r_mo<-lm(data_set$y ~ .,data=as.data.frame(r_data_en))
+vif_values<-vif(r_mo)
+print("VIF Values:")
+print(vif_values)
+```
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

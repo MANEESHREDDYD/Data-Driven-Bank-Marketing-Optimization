@@ -1,0 +1,252 @@
+```{r}
+packages <- c("tidyverse", "caret", "randomForest", "e1071", "xgboost", "data.table","car","ROSE", "dplyr", "corrplot")
+
+install_if_missing <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg, dependencies = TRUE)
+  }
+}
+sapply(packages, install_if_missing)
+sapply(packages, library, character.only = TRUE)
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(e1071)
+library(xgboost)
+library(corrplot)
+library(data.table)
+library(car)
+library(ROSE)
+library(dplyr)
+```
+```{r}
+data <- read.csv("C:/Users/Public/bank-additional-full.csv", sep = ";")
+data
+print(table(data$y))
+```
+
+```{r}
+data <- data %>%
+  mutate_if(is.character, as.factor)
+data
+```
+
+```{r}
+
+set.seed(123)  
+index <- createDataPartition(data$y, p = 0.8, list = FALSE)
+
+train_data <- data[index, ]
+test_data <- data[-index, ]
+train_data$y <- factor(train_data$y, levels = c("yes", "no"))
+test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+
+train_data
+test_data
+```
+```{r}
+print(table(train_data$y))
+```
+```{r}
+
+train_data <- ovun.sample(y ~ ., data = train_data, method = "over", N = nrow(train_data))$data
+
+print(table(train_data$y))
+
+
+
+
+```
+```{r}
+train_data
+```
+```{r}
+response_encode <- function(data, target) {
+  encoded_data <- data
+  for (col in names(data)) {
+    if (is.factor(data[[col]]) && col != target) {
+      mean_response <- aggregate(as.numeric(data[[target]]) - 1 ~ data[[col]], FUN = mean)
+      names(mean_response) <- c(col, paste0(col, "_encoded"))
+      encoded_data <- merge(encoded_data, mean_response, by.x = col, by.y = col, all.x = TRUE)
+    }
+  }
+  
+  encoded_data <- encoded_data %>% select(-one_of(names(data %>% select_if(is.factor))))
+  
+  return(encoded_data)
+}
+
+```
+
+```{r}
+
+target_var <- "y"
+train_encoded <- response_encode(train_data, target_var)
+test_encoded <- response_encode(test_data, target_var)
+```
+```{r}
+train_encoded
+test_encoded
+```
+```{r}
+train_encoded <- train_encoded %>% select(-one_of(names(train_data %>% select_if(is.factor))))
+test_encoded <- test_encoded %>% select(-one_of(names(test_data %>% select_if(is.factor))))
+train_encoded
+test_encoded
+```
+```{r}
+logistic_model <- glm(y ~ ., data = train_data, family = "binomial")
+
+logistic_preds <- predict(logistic_model, test_data, type = "response")
+logistic_preds_class <- ifelse(logistic_preds > 0.5, "yes", "no")
+test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+logistic_preds_class <- factor(logistic_preds_class, levels = levels(test_data$y))
+conf_matrix <- table(Predicted = logistic_preds_class, Actual = test_data$y)
+
+logistic_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+print("Confusion Matrix:")
+print(conf_matrix)
+print(paste("Accuracy:", round(logistic_accuracy, 4)))
+
+```
+
+```{r}
+rf_model <- randomForest(y ~ ., data = train_data, ntree = 100)
+
+rf_preds <- predict(rf_model, test_data)
+test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+rf_preds <- factor(rf_preds, levels = levels(test_data$y))
+
+conf_matrix <- table(Predicted = rf_preds, Actual = test_data$y)
+
+rf_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+print("Confusion Matrix:")
+print(conf_matrix)
+print(paste("Accuracy:", round(rf_accuracy, 4)))
+
+```
+
+```{r}
+
+svm_model <- svm(y ~ ., data = train_data, kernel = "linear")
+
+svm_preds <- predict(svm_model, test_data)
+test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+svm_preds <- factor(svm_preds, levels = levels(test_data$y))
+
+conf_matrix <- table(Predicted = svm_preds, Actual = test_data$y)
+
+svm_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+
+print("Confusion Matrix:")
+print(conf_matrix)
+print(paste("Accuracy:", round(svm_accuracy, 4)))
+
+```
+
+
+
+
+```{r}
+logistic_preds <- predict(logistic_model, test_data, type = "response")
+
+svm_preds <- predict(svm_model, test_data, type = "response")
+
+
+if (is.factor(svm_preds)) {
+  svm_preds <- as.numeric(as.character(svm_preds))
+}
+
+svm_preds[is.na(svm_preds)] <- 0.5 
+
+rf_preds <- predict(rf_model, test_data, type = "prob")[, 2]  
+
+
+logistic_preds_class <- ifelse(logistic_preds > 0.5, "yes", "no")
+svm_preds_class <- ifelse(svm_preds > 0.5, "yes", "no")
+rf_preds_class <- ifelse(rf_preds > 0.5, "yes", "no")
+
+
+logistic_numeric <- as.numeric(logistic_preds_class == "yes")
+svm_numeric <- as.numeric(svm_preds_class == "yes")
+rf_numeric <- as.numeric(rf_preds_class == "yes")
+
+
+stacking_data <- data.frame(
+  logistic = logistic_numeric,
+  random_forest = rf_numeric,
+  svm = svm_numeric,
+  y = as.numeric(test_data$y == "yes")  
+)
+
+stacking_data[is.na(stacking_data)] <- 0  
+
+set.seed(123)
+stacking_idx <- createDataPartition(stacking_data$y, p = 0.8, list = FALSE)
+
+train_stacking <- stacking_data[stacking_idx, ]
+test_stacking <- stacking_data[-stacking_idx, ]
+
+stacking_model <- glm(y ~ ., data = train_stacking, family = "binomial")
+
+
+stacking_preds <- predict(stacking_model, test_stacking, type = "response")
+stacking_preds_class <- ifelse(stacking_preds > 0.5, 1, 0)  
+
+conf_matrix <- table(Predicted = stacking_preds_class, Actual = test_stacking$y)
+stacking_accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+print("Confusion Matrix:")
+print(conf_matrix)
+print(paste("Accuracy:", round(stacking_accuracy, 4)))
+
+
+
+
+```
+```{r}
+
+library(ggplot2)
+
+model_accuracies <- data.frame(
+  Model = c("Logistic Regression", "Random Forest", "SVM", "Stacking Ensemble"),
+  Accuracy = c(
+    logistic_accuracy,  
+    rf_accuracy,        
+    svm_accuracy,       
+    stacking_accuracy   
+  )
+)
+
+
+model_accuracies$Index <- 1:nrow(model_accuracies)
+
+p <- ggplot(model_accuracies, aes(x = Index, y = Accuracy, group = 1)) +
+  geom_line(color = "blue", size = 1) + 
+  geom_point(size = 3, color = "red") +
+  geom_text(aes(label = round(Accuracy, 4)), vjust = -1, size = 4) +
+  scale_x_continuous(
+    breaks = model_accuracies$Index, 
+    labels = model_accuracies$Model
+  ) +
+  coord_cartesian(ylim = c(min(model_accuracies$Accuracy) - 0.01, max(model_accuracies$Accuracy) + 0.01)) + 
+  theme_minimal(base_size = 10) +  
+  labs(
+    title = "Model Accuracy Comparison Curve",
+    x = "Models",
+    y = "Accuracy"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 12, face = "bold")
+  )
+
+print(p)
+
+
+ggsave("model_accuracy_comparison.png", plot = p, width = 6, height = 4, dpi = 150)
+```
+
